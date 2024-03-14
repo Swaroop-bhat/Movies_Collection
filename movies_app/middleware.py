@@ -11,7 +11,7 @@ from django.conf import settings
 #         settings.REQUEST_COUNT = settings.REQUEST_COUNT + 1
 #         response = self.get_response(request)
 #         return response
-    
+
 class RequestCounterMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response

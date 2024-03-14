@@ -6,9 +6,10 @@ from rest_framework.response import Response
 from rest_framework import status
 from .models import Collection, Movie, User
 from .auth import generate_jwt_token, verify_jwt_token
-from .utils import fetch_movies, calculate_favorite_genres
+from .utils import calculate_favorite_genres
 from movies_collection import settings
 from .serializers import MovieSerializer
+import requests
 
 
 @api_view(['POST'])
@@ -35,30 +36,22 @@ def register_user(request):
     return response
 
 
-import requests
 @api_view(['GET'])
-# def list_movies(request):
-#     if request.method == 'GET':
-#         authorization = request.headers.get('Authorization')
-#         token = request.COOKIES.get('jwt')
-#         payload = verify_jwt_token(token)
-#         if not payload or not authorization:
-#             return Response({'error': 'Unauthorized'},
-#                             status=status.HTTP_401_UNAUTHORIZED)
-            
-#         movies_data = fetch_movies()
-#         return Response(movies_data)
-
 def list_movies(request):
     url = 'https://demo.credy.in/api/v1/maya/movies/'
     username = settings.MOVIE_API_USERNAME
     password = settings.MOVIE_API_PASSWORD
-    print(username)
-    # print(MOVIE_API_PASSWORD)
-    
-    username = 'iNd3jDMYRKsN1pjQPMRz2nrq7N99q4Tsp9EY9cM0'
-    password = 'Ne5DoTQt7p8qrgkPdtenTK8zd6MorcCR5vXZIJNfJwvfafZfcOs4reyasVYddTyXCz9hcL5FGGIVxw3q02ibnBLhblivqQTp4BIC93LZHj4OppuHQUzwugcYu7TIC5H1'
+    authorization = request.headers.get('Authorization')
+    if not authorization:
+        return Response({'error': 'Authorization header missing'},
+                        status=status.HTTP_401_UNAUTHORIZED)
 
+    token = authorization.split()[1]
+
+    payload = verify_jwt_token(token)
+    if not payload:
+        return Response({'error': 'Invalid or expired token'},
+                        status=status.HTTP_401_UNAUTHORIZED)
     retries = 3
     for _ in range(retries):
         try:
@@ -70,26 +63,25 @@ def list_movies(request):
             print(f"Error fetching movies: {e}")
     return Response({'error': 'Failed to fetch movies'}, status=500)
 
-    
 
 @api_view(['GET', 'POST'])
 def list_create_collections(request):
     if request.method == 'GET':
         authorization = request.headers.get('Authorization')
-        token = request.COOKIES.get('jwt')
-        payload = verify_jwt_token(token)
-        if not payload or not authorization:
-            return Response({'error': 'Unauthorized'},
+        if not authorization:
+            return Response({'error': 'Authorization header missing'},
                             status=status.HTTP_401_UNAUTHORIZED)
-
-        collections = Collection.objects.filter(
-            user_id=payload['user_id'])
+        token = authorization.split()[1]
+        payload = verify_jwt_token(token)
+        if not payload:
+            return Response({'error': 'Invalid or expired token'},
+                            status=status.HTTP_401_UNAUTHORIZED)
+        collections = Collection.objects.filter(user_id=payload['user_id'])
         data = [{'title': collection.title,
                  'uuid': collection.uuid,
                  'description': collection.description
                  } for collection in collections]
         favorite_genres = calculate_favorite_genres(collections)
-
         return Response({
             'is_success': True,
             'data': {
@@ -100,12 +92,14 @@ def list_create_collections(request):
 
     elif request.method == 'POST':
         authorization = request.headers.get('Authorization')
-        token = request.COOKIES.get('jwt')
-        payload = verify_jwt_token(token)
-        if not payload or not authorization:
-            return Response({'error': 'Unauthorized'},
+        if not authorization:
+            return Response({'error': 'Authorization header missing'},
                             status=status.HTTP_401_UNAUTHORIZED)
-
+        token = authorization.split()[1]
+        payload = verify_jwt_token(token)
+        if not payload:
+            return Response({'error': 'Invalid or expired token'},
+                            status=status.HTTP_401_UNAUTHORIZED)
         title = request.data.get('title')
         description = request.data.get('description')
         movies = request.data.get('movies')
@@ -113,14 +107,12 @@ def list_create_collections(request):
         if not title or not movies:
             return Response({'error': 'Title and movies are required'},
                             status=status.HTTP_400_BAD_REQUEST)
-
         collection = Collection.objects.create(
             title=title, description=description,
             user_id=payload['user_id'])
         for movie_data in movies:
             movie = Movie.objects.create(**movie_data)
             collection.movies.add(movie)
-
         return Response({'collection_uuid': collection.uuid},
                         status=status.HTTP_201_CREATED)
 
@@ -128,12 +120,16 @@ def list_create_collections(request):
 @api_view(['GET', 'PUT', 'DELETE', 'POST'])
 def retrieve_update_delete_collection(request, collection_uuid):
     authorization = request.headers.get('Authorization')
-    token = request.COOKIES.get('jwt')
-    payload = verify_jwt_token(token)
-    if not payload or not authorization:
-        return Response({'error': 'Unauthorized'},
+    if not authorization:
+        return Response({'error': 'Authorization header missing'},
                         status=status.HTTP_401_UNAUTHORIZED)
 
+    token = authorization.split()[1]
+
+    payload = verify_jwt_token(token)
+    if not payload:
+        return Response({'error': 'Invalid or expired token'},
+                        status=status.HTTP_401_UNAUTHORIZED)
     collection = get_object_or_404(Collection,
                                    uuid=collection_uuid,
                                    user_id=payload['user_id'])
@@ -149,15 +145,15 @@ def retrieve_update_delete_collection(request, collection_uuid):
                         } for movie in collection.movies.all()]
         }
         return Response(data, status=status.HTTP_200_OK)
-    
+
     elif request.method == 'POST':
         movie_serializer = MovieSerializer(data=request.data)
         if movie_serializer.is_valid():
             movie = movie_serializer.save()
             collection.movies.add(movie)
-            return Response({"status":
-                "Movie added to collection successfully."},
-                            status=status.HTTP_201_CREATED)
+            return Response(
+                {"status": "Movie added to collection successfully."
+                 }, status=status.HTTP_201_CREATED)
         return Response(movie_serializer.errors,
                         status=status.HTTP_400_BAD_REQUEST)
 
